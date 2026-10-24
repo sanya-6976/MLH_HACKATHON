@@ -29,12 +29,12 @@ No genuine prediction JSONL or Phase 7B–7D prediction report was present durin
 
 ## Integration and validation
 
-The Streamlit frontend continues to use Member 1's existing `inspect_label` and `evaluate_label` application flow. This branch adds a separate Generic OCR Evaluation panel for user-supplied genuine JSONL predictions; it checks that the local selected dataset files exist, runs Member 2's evaluator locally, and offers JSON and Markdown report downloads. It does not submit OCR predictions to Gemma or reinterpret Gemma's product fields as OCR output. Unsupported rule validation types are routed to `NEEDS_REVIEW`, and the UI no longer labels `PRESENT` findings as verified. The dataset itself is not included in this repository because its licence and redistribution terms are unknown.
+The Streamlit frontend continues to use Member 1's existing `inspect_label` and `evaluate_label` application flow. This branch adds a separate Generic OCR Evaluation panel for user-supplied genuine JSONL predictions; it checks that the local selected dataset files exist, runs Member 2's evaluator locally, and offers JSON and Markdown report downloads. It does not submit OCR predictions to Gemma or reinterpret Gemma's product fields as OCR output. The dataset itself is not included in this repository because its licence and redistribution terms are unknown.
 
 Actual test commands and results:
 
 - `python -m pytest -q tests/test_real_ocr.py` — **18 passed** (synthetic metric fixtures only).
-- `python -m pytest -q` — **46 passed** (unit/synthetic tests only; no live model inference).
+- `python -m pytest -q` — **43 passed** (unit/synthetic tests only; no live model inference).
 - `python -m py_compile app.py evaluate_real_ocr.py` — passed; verifies syntax only.
 
 No genuine prediction or live inference is represented by these tests. The app's OCR panel evaluates only predictions supplied by the user and does not generate them.

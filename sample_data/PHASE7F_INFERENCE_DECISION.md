@@ -48,7 +48,7 @@ Test command and result:
 
 ```text
 python -m pytest -q
-46 passed
+43 passed
 ```
 
 Focused evaluator command:
