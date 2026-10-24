@@ -22,6 +22,13 @@ load_dotenv()
 from gemma_service import inspect_label
 from rules_engine import evaluate_label
 from schemas import DetectionStatus
+from evaluate_real_ocr import (
+    DEFAULT_MANIFEST,
+    TASK_DETECTION,
+    TASK_RECOGNITION,
+    _markdown_report,
+    evaluate_records,
+)
 
 # Page Configuration
 st.set_page_config(
@@ -235,7 +242,10 @@ if image_bytes:
 
     with col_right:
         st.subheader("⚖️ FSSAI (Labelling & Display) Screening")
-        st.caption("Deterministic evaluation against Food Safety and Standards Regulations, 2020 (as amended):")
+        st.caption(
+            "Configured screening checks referencing FSSAI labelling provisions. "
+            "These findings are not legal verification or compliance certification."
+        )
 
         # Summary counts
         present_count = sum(1 for r in evaluation_results if r.get("status") == "PRESENT")
@@ -243,7 +253,7 @@ if image_bytes:
         unclear_count = sum(1 for r in evaluation_results if r.get("status") == "UNCLEAR")
 
         metric_col1, metric_col2, metric_col3 = st.columns(3)
-        metric_col1.metric("Present & Verified", present_count)
+        metric_col1.metric("Checks marked PRESENT", present_count)
         metric_col2.metric("Needs Review / Other Sides", review_count)
         metric_col3.metric("Unclear / Blurry", unclear_count)
 
@@ -289,3 +299,120 @@ if image_bytes:
     )
 else:
     st.info("👆 Please upload a food label image or choose a preloaded demo scenario from the sidebar to begin screening.")
+
+
+# Member 2's offline OCR evaluator is separate from the Gemma field-extraction flow.
+st.markdown("---")
+st.header("Generic OCR Evaluation")
+st.caption(
+    "Evaluate genuine JSONL predictions against the selected generic OCR test subset. "
+    "This does not measure ingredient extraction, nutrition extraction, expiry dates, or compliance. "
+    "The uploaded predictions are evaluated locally and are not sent to Gemma."
+)
+
+dataset_root_value = st.text_input(
+    "Local dataset root (contains the manifest-relative dataset paths)",
+    value=os.getenv("LABELGUARD_OCR_DATASET_ROOT", str(Path(__file__).parent)),
+    key="ocr_dataset_root",
+)
+ocr_predictions_file = st.file_uploader(
+    "Upload genuine UTF-8 OCR predictions (.jsonl)",
+    type=["jsonl"],
+    key="ocr_predictions_jsonl",
+)
+
+if st.button("Evaluate OCR predictions", key="evaluate_ocr_predictions"):
+    if ocr_predictions_file is None:
+        st.warning("Upload a genuine model predictions JSONL file first. Mock or illustrative predictions are not accepted as model results.")
+    else:
+        dataset_root = Path(dataset_root_value).expanduser()
+        try:
+            manifest = json.loads(DEFAULT_MANIFEST.read_text(encoding="utf-8"))
+            missing_data = []
+            for entry in manifest["entries"]:
+                for relative_path in (entry["original_relative_path"], entry["annotation_path"]):
+                    if not (dataset_root / relative_path).is_file():
+                        missing_data.append(relative_path)
+            if missing_data:
+                st.error(
+                    "The selected dataset images/annotations are not available under this root. "
+                    "Set the dataset root to the local directory that contains the manifest paths. "
+                    f"Missing files include: {', '.join(missing_data[:4])}"
+                )
+                st.session_state.pop("ocr_evaluation_report", None)
+            else:
+                raw_jsonl = ocr_predictions_file.getvalue().decode("utf-8-sig")
+                records = []
+                parse_errors = []
+                for line_number, line in enumerate(raw_jsonl.splitlines(), start=1):
+                    if not line.strip():
+                        continue
+                    try:
+                        records.append((line_number, json.loads(line)))
+                    except json.JSONDecodeError as error:
+                        parse_errors.append(
+                            {"line": line_number, "error": f"malformed JSON: {error.msg} (column {error.colno})"}
+                        )
+                st.session_state["ocr_evaluation_report"] = evaluate_records(
+                    manifest, records, dataset_root, parse_errors
+                )
+        except (UnicodeDecodeError, OSError, json.JSONDecodeError, KeyError, ValueError) as error:
+            st.error(f"OCR evaluation could not start: {error}")
+            st.session_state.pop("ocr_evaluation_report", None)
+
+ocr_report = st.session_state.get("ocr_evaluation_report")
+if ocr_report:
+    detection = ocr_report["metrics"][TASK_DETECTION]
+    recognition = ocr_report["metrics"][TASK_RECOGNITION]
+    st.subheader("Text Detection")
+    det_cols = st.columns(3)
+    for column, label, value in zip(
+        det_cols,
+        ("Precision", "Recall", "F1"),
+        (detection["precision"], detection["recall"], detection["f1"]),
+    ):
+        column.metric(label, "n/a" if value is None else f"{value:.4f}")
+    st.caption(
+        f"Scored {detection['scored_samples']} / {detection['expected_samples']} images · "
+        f"TP {detection['tp']} · FP {detection['fp']} · FN {detection['fn']} · "
+        f"IoU threshold {detection['iou_threshold']:.2f}"
+    )
+
+    st.subheader("Text Recognition")
+    rec_cols = st.columns(3)
+    for column, label, value in zip(
+        rec_cols,
+        ("Exact match", "CER", "WER"),
+        (recognition["exact_match_accuracy"], recognition["cer"], recognition["wer"]),
+    ):
+        column.metric(label, "n/a" if value is None else f"{value:.4f}")
+    st.caption(
+        f"Scored {recognition['scored_samples']} / {recognition['expected_samples']} crops · "
+        f"Missing {recognition['missing_samples']} · Failed {recognition['failed_samples']} · "
+        f"Invalid {recognition['invalid_samples']}"
+    )
+    if ocr_report["invalid_records"] or ocr_report["input_errors"] or ocr_report["missing_sample_ids"]:
+        st.warning("Some prediction records were invalid or missing. Review the report details before interpreting metrics.")
+    with st.expander("Sample-level results and validation errors"):
+        st.json({
+            "invalid_records": ocr_report["invalid_records"],
+            "input_errors": ocr_report["input_errors"],
+            "missing_sample_ids": ocr_report["missing_sample_ids"],
+            "detection_samples": detection["samples"],
+            "recognition_samples": recognition["samples"],
+        })
+    download_cols = st.columns(2)
+    download_cols[0].download_button(
+        "Download JSON evaluation report",
+        data=json.dumps(ocr_report, ensure_ascii=False, indent=2, allow_nan=False),
+        file_name="real_ocr_report.json",
+        mime="application/json",
+        key="download_ocr_json",
+    )
+    download_cols[1].download_button(
+        "Download Markdown evaluation report",
+        data=_markdown_report(ocr_report),
+        file_name="real_ocr_report.md",
+        mime="text/markdown",
+        key="download_ocr_markdown",
+    )
