@@ -91,6 +91,18 @@ if not api_key_input and not demo_mode_toggle:
 elif api_key_input and not demo_mode_toggle:
     st.sidebar.success("🔑 API Key configured: Live Gemma 4 inference active.")
 
+with st.sidebar.expander("🔌 Test Live Gemma 4 Connection"):
+    if st.button("Run Endpoint Diagnostic", key="diag_btn"):
+        from gemma_service import diagnose_endpoint
+        with st.spinner("Checking Gemma 4 endpoint connectivity..."):
+            diag = diagnose_endpoint(api_key=api_key_input, model_name=selected_model)
+        if diag.get("status") == "SUCCESS":
+            st.success(f"✅ {diag.get('detail')}")
+        elif diag.get("status") == "UNCONFIGURED":
+            st.info(f"ℹ️ {diag.get('detail')}\n\n👉 {diag.get('suggested_fix')}")
+        else:
+            st.error(f"❌ **{diag.get('category')}**: {diag.get('detail')}\n\n👉 **Suggested Fix**: {diag.get('suggested_fix')}")
+
 st.sidebar.markdown("---")
 st.sidebar.subheader("📋 Preloaded Demo Scenarios")
 demo_scenario = st.sidebar.radio(
