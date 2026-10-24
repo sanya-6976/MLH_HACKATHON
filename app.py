@@ -14,6 +14,10 @@ from typing import Dict, Any
 import streamlit as st
 from PIL import Image
 import io
+from dotenv import load_dotenv
+
+# Ensure local environment variables are loaded
+load_dotenv()
 
 from gemma_service import inspect_label
 from rules_engine import evaluate_label
@@ -47,23 +51,45 @@ st.sidebar.caption("Hackathon Track: Best Use of Gemma 4")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("🤖 Model Configuration")
-st.sidebar.info("Target Model: **Google Gemma 4** (Multimodal)")
 
+# Model ID Selector (consistent with GEMMA_MODEL_NAME)
+current_model_env = os.getenv("GEMMA_MODEL_NAME", "gemma-4-31b-it")
+model_options = ["gemma-4-31b-it", "gemma-4-26b-a4b-it", "gemma-4-4b-it"]
+default_idx = model_options.index(current_model_env) if current_model_env in model_options else 0
+
+selected_model = st.sidebar.selectbox(
+    "Gemma 4 Multimodal Model ID",
+    options=model_options,
+    index=default_idx,
+    help="Target Google Gemma 4 multimodal model identifier."
+)
+os.environ["GEMMA_MODEL_NAME"] = selected_model
+
+# API Key Input (never logged, updates GEMMA_API_KEY)
+current_api_key = os.getenv("GEMMA_API_KEY", "") or os.getenv("GOOGLE_API_KEY", "")
 api_key_input = st.sidebar.text_input(
-    "Gemma 4 / Gemini API Key",
-    value=os.getenv("GEMMA_API_KEY", "") or os.getenv("GOOGLE_API_KEY", ""),
+    "Gemma 4 / Google Gemini API Key",
+    value=current_api_key,
     type="password",
-    help="Optional. If left blank, the app runs in deterministic Demo/Mock mode."
+    help="Optional. If left blank or invalid, the app runs in explicit Demo/Mock mode."
 )
 if api_key_input:
     os.environ["GEMMA_API_KEY"] = api_key_input
+    os.environ["GOOGLE_API_KEY"] = api_key_input
+elif "GEMMA_API_KEY" in os.environ and not current_api_key:
+    os.environ.pop("GEMMA_API_KEY", None)
 
 demo_mode_toggle = st.sidebar.checkbox(
     "Force Demo / Mock Mode",
-    value=(os.getenv("FORCE_MOCK_GEMMA", "0") == "1"),
+    value=(os.getenv("FORCE_MOCK_GEMMA", "0") in ("1", "true", "True")),
     help="Force simulated responses for offline hackathon testing."
 )
 os.environ["FORCE_MOCK_GEMMA"] = "1" if demo_mode_toggle else "0"
+
+if not api_key_input and not demo_mode_toggle:
+    st.sidebar.info("💡 No API key configured: Application is running in **Simulated Demo Mode**.")
+elif api_key_input and not demo_mode_toggle:
+    st.sidebar.success("🔑 API Key configured: Live Gemma 4 inference active.")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("📋 Preloaded Demo Scenarios")
@@ -125,16 +151,28 @@ elif demo_scenario == "Demo 2: Front-of-Pack Only (Ingredients & FSSAI on other 
 
 if image_bytes:
     # Execute Pipeline
-    with st.spinner("Extracting visible evidence using Gemma 4 multimodal model..."):
+    with st.spinner(f"Extracting visible evidence using {os.getenv('GEMMA_MODEL_NAME', 'gemma-4')}..."):
         extracted_data = inspect_label(image_bytes, mime_type=mime_type)
 
     with st.spinner("Running deterministic FSSAI 2020 rules engine..."):
         evaluation_results = evaluate_label(extracted_data, rules_config)
 
-    # Check if mock mode was triggered
+    # Check for live model failure (Task 6)
+    is_error = extracted_data.get("is_error", False)
+    if is_error:
+        st.error(
+            f"❌ **Live Gemma 4 Model Inference Failed**: {extracted_data.get('error_message')}. "
+            "Model failures are strictly isolated and are never passed as genuine extracted label data. "
+            "Please check your API key, model selection, or enable 'Force Demo / Mock Mode' in the sidebar."
+        )
+
+    # Check for mock mode (Task 5)
     is_mock = extracted_data.get("is_mock", False)
     if is_mock:
-        st.info("ℹ️ **DEMO / MOCK EXTRACTION**: Running in simulated mode using Gemma 4 test profile.")
+        st.warning(
+            f"⚠️ **SIMULATED DEMO OUTPUT**: Running in mock mode ({extracted_data.get('model_name')}). "
+            "This output is sample demonstration data and is **NOT live model output**."
+        )
 
     # Two-Column Results Display
     col_left, col_right = st.columns([1, 1], gap="large")
@@ -144,7 +182,7 @@ if image_bytes:
         st.image(image_display, caption="Captured Food Label", use_container_width=True)
 
         st.markdown("#### Gemma 4 Visible Extractions")
-        st.caption("Extracted strictly from visible areas of the packaging:")
+        st.caption(f"Model: `{extracted_data.get('model_name')}`")
 
         fields_to_show = [
             ("Product Name", extracted_data.get("product_name")),
@@ -185,7 +223,7 @@ if image_bytes:
 
     with col_right:
         st.subheader("⚖️ FSSAI (Labelling & Display) Screening")
-        st.caption("Deterministic evaluation against Food Safety and Standards Regulations, 2020:")
+        st.caption("Deterministic evaluation against Food Safety and Standards Regulations, 2020 (as amended):")
 
         # Summary counts
         present_count = sum(1 for r in evaluation_results if r.get("status") == "PRESENT")

@@ -7,7 +7,10 @@ CRITICAL PRINCIPLES:
 2. NEVER treat NOT_DETECTED as proof of regulatory noncompliance.
    Package labels are 3D and multi-panel; a single camera angle only captures
    visible panels. NOT_DETECTED simply means evidence was not observed in the provided image.
-3. Function Contract:
+3. MODEL FAILURE ISOLATION:
+   If model extraction encountered a failure (is_error=True), rule evaluation
+   is explicitly blocked rather than pretending unextracted data is genuine evidence.
+4. Function Contract:
    evaluate_label(extracted: dict, rules: dict) -> list[dict]
 """
 
@@ -39,6 +42,25 @@ def evaluate_label(extracted: dict, rules: dict) -> List[dict]:
     rule_list = rules.get("rules", [])
     results: List[dict] = []
 
+    # Safeguard: If the extraction encountered a model failure, do NOT treat
+    # failure as genuine label data. Explicitly report evaluation as blocked.
+    if extracted.get("is_error"):
+        error_msg = extracted.get("error_message", "Model extraction failed")
+        for rule in rule_list:
+            res = RuleEvaluationResult(
+                rule_id=rule.get("rule_id", "UNKNOWN"),
+                rule_name=rule.get("rule_name", "Unknown Rule"),
+                category=rule.get("category", "General"),
+                status=DetectionStatus.NEEDS_REVIEW,
+                citation=rule.get("citation", "FSSAI Regulations, 2020"),
+                summary=f"Rule evaluation blocked: Model extraction failed ({error_msg}). Cannot evaluate compliance on unextracted data.",
+                extracted_evidence=None,
+                action_needed="Resolve model credentials or network connection, or switch to Demo mode.",
+                is_noncompliance_proof=False
+            )
+            results.append(res.model_dump())
+        return results
+
     for rule in rule_list:
         rule_id = rule.get("rule_id", "UNKNOWN_RULE")
         rule_name = rule.get("rule_name", "Unnamed Rule")
@@ -61,7 +83,7 @@ def evaluate_label(extracted: dict, rules: dict) -> List[dict]:
             evidence_str = f"{evidence_str} | Visual: {visible_evidence}".strip(" |")
 
         # Handle NOT_DETECTED:
-        # Crucial Hackathon / FSSAI Principle: Absence in single photo != noncompliance!
+        # Crucial FSSAI / Hackathon Principle: Absence in single photo != noncompliance!
         if field_status == DetectionStatus.NOT_DETECTED.value:
             res = RuleEvaluationResult(
                 rule_id=rule_id,
@@ -141,7 +163,7 @@ def evaluate_label(extracted: dict, rules: dict) -> List[dict]:
                 action_needed = "Confirm whether symbol is Green (Veg) or Brown (Non-Veg)."
 
         elif validation_type == "text_minimum_length":
-            min_len = rule.get("min_length", 5)
+            min_len = rule.get("min_length", 2)
             if len(extracted_text.strip()) < min_len:
                 status = DetectionStatus.NEEDS_REVIEW
                 summary = rule.get("on_present_invalid", "Text field detected but appears incomplete.")
@@ -162,7 +184,7 @@ def evaluate_label(extracted: dict, rules: dict) -> List[dict]:
             if missing:
                 status = DetectionStatus.NEEDS_REVIEW
                 summary = (
-                    f"Nutritional table detected. Some mandatory nutrients may be missing or unverified: {', '.join(missing)}."
+                    f"Nutritional table detected. Some mandatory nutrients may be unverified: {', '.join(missing)}."
                 )
                 action_needed = "Verify if complete nutritional panel (energy, carbs, sugars, fat, sodium) is present."
 

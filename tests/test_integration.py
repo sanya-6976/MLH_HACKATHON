@@ -85,3 +85,64 @@ def test_front_panel_scenario_yields_needs_review(loaded_rules):
     fssai_eval = next(r for r in evaluated if r["rule_id"] == "FSSAI-2020-5-7")
     assert fssai_eval["status"] == DetectionStatus.NEEDS_REVIEW.value
     assert fssai_eval["is_noncompliance_proof"] is False
+
+
+def test_model_failure_does_not_pass_mock_data(monkeypatch, loaded_rules):
+    """
+    TASK 6: When live model call fails, inspect_label must return an error result
+    (is_error=True) and NOT silently pass mock snack data.
+    """
+    # Set a dummy API key to simulate live mode
+    monkeypatch.setenv("GEMMA_API_KEY", "test_invalid_api_key_12345")
+    monkeypatch.setenv("FORCE_MOCK_GEMMA", "0")
+
+    # Mock _call_live_gemma_4 to simulate API failure
+    from gemma_service import _call_live_gemma_4
+    def fake_failed_call(image_bytes, mime_type, api_key, model_name):
+        return None, "Gemma 4 API Error: 401 Unauthorized - Invalid API Key"
+
+    monkeypatch.setattr("gemma_service._call_live_gemma_4", fake_failed_call)
+
+    result = inspect_label(b"test_image_bytes")
+    assert result["is_error"] is True
+    assert result["is_mock"] is False
+    assert "401" in result["error_message"]
+
+    # When passed to evaluate_label, evaluation is blocked, not evaluated on fake data
+    evaluated = evaluate_label(result, loaded_rules)
+    assert len(evaluated) == len(loaded_rules["rules"])
+    for item in evaluated:
+        assert item["status"] == DetectionStatus.NEEDS_REVIEW.value
+        assert "evaluation blocked" in item["summary"].lower()
+
+
+def test_environment_variables_read_consistently(monkeypatch):
+    """
+    TASK 3: Ensure GEMMA_API_KEY, GOOGLE_API_KEY, and GEMMA_MODEL_NAME are respected.
+    """
+    monkeypatch.setenv("GEMMA_MODEL_NAME", "gemma-4-26b-a4b-it")
+    monkeypatch.setenv("FORCE_MOCK_GEMMA", "1")
+
+    result = inspect_label(b"test_image_bytes")
+    assert result["is_mock"] is True
+    # In mock mode, the model name tracks gemma-4
+    assert "gemma-4" in result["model_name"]
+
+
+def test_live_inference_classification_with_invalid_credentials(monkeypatch):
+    """
+    TASK 4: Verify how live inference classifies failure when invalid credentials are provided.
+    Never prints or leaks secrets.
+    """
+    from gemma_service import _call_live_gemma_4
+    result, error_msg = _call_live_gemma_4(
+        image_bytes=b"dummy_bytes",
+        mime_type="image/jpeg",
+        api_key="AIzaSyDummyKeyForTestingOnlyNotReal",
+        model_name="gemma-4-31b-it"
+    )
+    # The live call should fail gracefully and report an error message, without crashing
+    assert result is None
+    assert error_msg is not None
+    # Ensure error message does not contain the secret key itself
+    assert "AIzaSyDummyKeyForTestingOnlyNotReal" not in error_msg

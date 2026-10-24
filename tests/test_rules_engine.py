@@ -110,3 +110,48 @@ def test_evaluate_veg_symbol_valid(food_rules):
     results = evaluate_label(extracted, food_rules)
     veg_res = next(r for r in results if r["rule_id"] == "FSSAI-2020-5-4")
     assert veg_res["status"] == DetectionStatus.PRESENT.value
+
+
+def test_evaluate_label_model_failure_safeguard(food_rules):
+    """
+    TASK 6 SAFEGUARD: When extraction has is_error=True, rule evaluation must be
+    blocked and must NOT treat failure as genuine extracted data.
+    """
+    extracted_error = {
+        "is_mock": False,
+        "is_error": True,
+        "error_message": "Gemma 4 API Error: HTTP 403 Forbidden",
+        "model_name": "gemma-4-31b-it [LIVE CALL FAILED]"
+    }
+    results = evaluate_label(extracted_error, food_rules)
+    assert len(results) == len(food_rules["rules"])
+    for res in results:
+        assert res["status"] == DetectionStatus.NEEDS_REVIEW.value
+        assert res["is_noncompliance_proof"] is False
+        assert "evaluation blocked" in res["summary"].lower()
+
+
+def test_all_rules_not_detected_safeguard(food_rules):
+    """
+    TASK 7 SAFEGUARD: When every rule receives NOT_DETECTED, is_noncompliance_proof
+    must be False across 100% of the rules.
+    """
+    empty_extracted = {
+        rule["target_field"]: {"status": "NOT_DETECTED", "extracted_text": None, "visible_evidence": None}
+        for rule in food_rules["rules"]
+    }
+    results = evaluate_label(empty_extracted, food_rules)
+    assert len(results) == len(food_rules["rules"])
+    for res in results:
+        assert res["status"] == DetectionStatus.NEEDS_REVIEW.value
+        assert res["is_noncompliance_proof"] is False
+
+
+def test_verified_fssai_citations(food_rules):
+    """
+    TASK 7: Verify all rule citations match FSSAI (Labelling and Display) Regulations, 2020.
+    """
+    assert "FSSAI (Labelling and Display) Regulations, 2020" in food_rules["framework"]
+    for rule in food_rules["rules"]:
+        assert "FSSAI (Labelling and Display) Regulations, 2020" in rule["citation"]
+        assert "Regulation 5" in rule["citation"]

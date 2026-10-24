@@ -102,3 +102,18 @@ def test_rule_evaluation_result_schema():
     )
     assert eval_res.is_noncompliance_proof is False
     assert eval_res.status == DetectionStatus.NEEDS_REVIEW
+
+
+def test_label_extraction_result_error_fields():
+    """Test that is_error and error_message are supported in LabelExtractionResult."""
+    result = LabelExtractionResult(
+        is_mock=False,
+        is_error=True,
+        error_message="HTTP 401: Invalid API key",
+        model_name="gemma-4-31b-it [LIVE CALL FAILED]"
+    )
+    assert result.is_error is True
+    assert result.is_mock is False
+    assert "Invalid API key" in result.error_message
+    as_dict = result.model_dump()
+    assert as_dict["is_error"] is True

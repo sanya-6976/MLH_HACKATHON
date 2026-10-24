@@ -2,20 +2,30 @@
 LabelGuard AI - Gemma 4 Multimodal Inspection Service (Member 1)
 Extracts visible evidence from food packaging images using Google Gemma 4.
 
-CRITICAL PRINCIPLES:
+AUDIT & SAFETY PRINCIPLES:
 1. Pure extraction: Does NOT evaluate compliance or regulatory rules.
 2. Honest detection: If an item is not in the camera frame, status is NOT_DETECTED.
-3. Resilient execution: If Gemma 4 API key is absent or unreachable, provides an
-   explicitly labeled mock/demo result so the app remains fully testable.
-4. Model Integrity: Targets Google Gemma 4 multimodal model.
-5. Function Contract:
+3. Resilient execution:
+   - When API credentials are absent or demo mode is active, provides an
+     EXPLICITLY LABELED mock/demo result so the app remains fully testable.
+   - When API credentials ARE provided but the model call fails, returns an
+     explicit error result (is_error=True). NEVER silently falls back to mock
+     data, ensuring model failures cannot be mistaken for genuine label evidence.
+4. Model Integrity: Targets Google Gemma 4 multimodal models (e.g., gemma-4-31b-it).
+5. Secret Hygiene: Never prints or logs API keys.
+6. Function Contract:
    inspect_label(image_bytes: bytes, mime_type: str) -> dict
 """
 
 import os
 import json
 import base64
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
+from dotenv import load_dotenv
+
+# Load local environment if available
+load_dotenv()
+
 from schemas import (
     DetectionStatus,
     ExtractedField,
@@ -23,21 +33,24 @@ from schemas import (
     LabelExtractionResult,
 )
 
-# Gemma 4 configuration from environment
-DEFAULT_MODEL_NAME = "gemma-4"
+# Standard Gemma 4 multimodal instruction-tuned model ID (Google AI Studio / Gemini API)
+# Supported variants: gemma-4-31b-it (dense 31B), gemma-4-26b-a4b-it (MoE 26B), gemma-4-4b-it
+DEFAULT_MODEL_NAME = os.getenv("GEMMA_MODEL_NAME", "gemma-4-31b-it")
 
 
 def _get_mock_label_data(mime_type: str = "image/jpeg", scenario: str = "standard_snack") -> LabelExtractionResult:
     """
     Returns an explicitly labeled mock/demo extraction result for local testing
-    or when Gemma 4 API is offline/unconfigured.
+    or when Gemma 4 API is unconfigured.
+    Clearly marked with is_mock=True and descriptive model tags.
     """
     if scenario == "front_of_pack_only":
-        # Demonstrates a common real-world case: front panel has name & veg logo,
-        # but ingredients and FSSAI license are on the back panel (NOT_DETECTED).
+        # Front panel view: product name, veg logo, and net weight visible;
+        # ingredients, nutritional table, FSSAI license are on other sides (NOT_DETECTED).
         return LabelExtractionResult(
             is_mock=True,
-            model_name=f"{DEFAULT_MODEL_NAME} [Demo Fallback - Front Panel Scenario]",
+            is_error=False,
+            model_name="gemma-4 [SIMULATED DEMO: Front-of-Pack Mock Profile]",
             image_mime_type=mime_type,
             product_name=ExtractedField(
                 name="product_name",
@@ -103,13 +116,14 @@ def _get_mock_label_data(mime_type: str = "image/jpeg", scenario: str = "standar
                 extracted_text=None,
                 confidence=0.0
             ),
-            raw_summary="Front display panel visible. Product name, veg logo, and net weight extracted. Rear panel information not captured in photo."
+            raw_summary="[DEMO MOCK] Front display panel visible. Product name, veg logo, and net weight extracted. Rear panel information not captured in photo."
         )
 
     # Standard snack label back-of-pack scenario
     return LabelExtractionResult(
         is_mock=True,
-        model_name=f"{DEFAULT_MODEL_NAME} [Demo Fallback - Back Panel Scenario]",
+        is_error=False,
+        model_name="gemma-4 [SIMULATED DEMO: Back Panel Full Mock Profile]",
         image_mime_type=mime_type,
         product_name=ExtractedField(
             name="product_name",
@@ -185,14 +199,20 @@ def _get_mock_label_data(mime_type: str = "image/jpeg", scenario: str = "standar
             confidence=0.90,
             visible_evidence="Bold advisory box immediately below ingredients list"
         ),
-        raw_summary="Back information panel visible. All core regulatory fields, nutrition table, and FSSAI 14-digit license extracted."
+        raw_summary="[DEMO MOCK] Back information panel visible. All core regulatory fields, nutrition table, and FSSAI 14-digit license extracted."
     )
 
 
-def _call_live_gemma_4(image_bytes: bytes, mime_type: str, api_key: str, model_name: str) -> Optional[LabelExtractionResult]:
+def _call_live_gemma_4(
+    image_bytes: bytes,
+    mime_type: str,
+    api_key: str,
+    model_name: str
+) -> Tuple[Optional[LabelExtractionResult], Optional[str]]:
     """
     Calls the Google Gemma 4 multimodal endpoint with strict JSON extraction prompt.
-    Returns LabelExtractionResult on success, or None on error.
+    Returns (result, None) on success, or (None, error_message) on failure.
+    Safeguard: Never logs or prints the API key.
     """
     try:
         import requests
@@ -240,10 +260,18 @@ Return ONLY valid JSON matching this schema:
             }
         }
 
-        resp = requests.post(url, json=payload, timeout=20)
+        resp = requests.post(url, json=payload, timeout=25)
         if resp.status_code == 200:
             data = resp.json()
-            raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
+            candidates = data.get("candidates", [])
+            if not candidates:
+                return None, "Model returned no candidate outputs."
+
+            parts = candidates[0].get("content", {}).get("parts", [])
+            if not parts or "text" not in parts[0]:
+                return None, "Model candidate contained no text parts."
+
+            raw_text = parts[0]["text"]
             parsed_json = json.loads(raw_text)
 
             def make_field(name: str) -> ExtractedField:
@@ -257,12 +285,13 @@ Return ONLY valid JSON matching this schema:
                     name=name,
                     status=status,
                     extracted_text=val.get("extracted_text"),
-                    confidence=float(val.get("confidence", 0.8)),
+                    confidence=float(val.get("confidence", 0.85)),
                     visible_evidence=val.get("visible_evidence")
                 )
 
-            return LabelExtractionResult(
+            res = LabelExtractionResult(
                 is_mock=False,
+                is_error=False,
                 model_name=model_name,
                 image_mime_type=mime_type,
                 product_name=make_field("product_name"),
@@ -275,11 +304,27 @@ Return ONLY valid JSON matching this schema:
                 mfg_or_expiry_date=make_field("mfg_or_expiry_date"),
                 manufacturer_details=make_field("manufacturer_details"),
                 allergen_declaration=make_field("allergen_declaration"),
-                raw_summary=parsed_json.get("raw_summary", "Extracted via Gemma 4 multimodal model")
+                raw_summary=parsed_json.get("raw_summary", f"Live extraction via Google {model_name}")
             )
-        return None
-    except Exception:
-        return None
+            return res, None
+
+        # Capture specific API error message
+        try:
+            err_json = resp.json()
+            err_msg = err_json.get("error", {}).get("message", f"HTTP {resp.status_code}")
+            status_code_name = err_json.get("error", {}).get("status", f"STATUS_{resp.status_code}")
+            return None, f"Gemma 4 API Error ({status_code_name}): {err_msg}"
+        except Exception:
+            return None, f"Gemma 4 API returned HTTP status {resp.status_code}"
+
+    except json.JSONDecodeError as jde:
+        return None, f"Model response was not valid JSON: {str(jde)}"
+    except requests.exceptions.Timeout:
+        return None, "Connection to Gemma 4 endpoint timed out after 25 seconds."
+    except requests.exceptions.ConnectionError:
+        return None, "Network connection error reaching Google GenAI endpoint."
+    except Exception as exc:
+        return None, f"{type(exc).__name__}: {str(exc)}"
 
 
 def inspect_label(image_bytes: bytes, mime_type: str = "image/jpeg") -> dict:
@@ -288,20 +333,36 @@ def inspect_label(image_bytes: bytes, mime_type: str = "image/jpeg") -> dict:
     inspect_label(image_bytes: bytes, mime_type: str) -> dict
 
     Extracts visible label information using Gemma 4.
-    If API key is missing or call fails, gracefully falls back to an explicitly
-    labeled mock result to guarantee hackathon demo availability.
+    - If API key is configured and mock mode is not forced: executes live inference.
+    - If live inference fails: returns an explicit failure result (is_error=True)
+      to prevent failed inference from polluting the rules engine with fake data.
+    - If API key is not configured or mock mode is forced: returns an explicitly
+      labeled mock extraction result.
     """
+    # Read API credentials and model configurations consistently
     api_key = os.getenv("GEMMA_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    model_name = os.getenv("GEMMA_MODEL_NAME", DEFAULT_MODEL_NAME)
-    force_mock = os.getenv("FORCE_MOCK_GEMMA", "0") == "1"
+    model_name = os.getenv("GEMMA_MODEL_NAME") or DEFAULT_MODEL_NAME
+    force_mock = os.getenv("FORCE_MOCK_GEMMA", "0") in ("1", "true", "True")
 
+    # Live Model Inference Path
     if api_key and not force_mock:
-        live_result = _call_live_gemma_4(image_bytes, mime_type, api_key, model_name)
+        live_result, error_msg = _call_live_gemma_4(image_bytes, mime_type, api_key, model_name)
         if live_result is not None:
             return live_result.model_dump()
 
-    # Fallback to mock / demo mode with explicit label
-    # Distinguish scenario based on small heuristics or default
+        # Task 6 Safeguard: When credentials exist but call fails, DO NOT silently
+        # substitute mock data as if it were genuine extraction!
+        failed_result = LabelExtractionResult(
+            is_mock=False,
+            is_error=True,
+            error_message=error_msg or "Live Gemma 4 inference failed",
+            model_name=f"{model_name} [LIVE CALL FAILED]",
+            image_mime_type=mime_type,
+            raw_summary=f"Live model inference failed: {error_msg}. Feature extraction could not be completed."
+        )
+        return failed_result.model_dump()
+
+    # Explicit Demo / Mock Fallback Path
     scenario = "front_of_pack_only" if len(image_bytes) < 1000 and len(image_bytes) % 2 == 1 else "standard_snack"
     mock_result = _get_mock_label_data(mime_type=mime_type, scenario=scenario)
     return mock_result.model_dump()

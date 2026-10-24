@@ -71,6 +71,14 @@ class LabelExtractionResult(BaseModel):
         default=False,
         description="Explicit flag indicating whether result is simulated/demo fallback"
     )
+    is_error: bool = Field(
+        default=False,
+        description="Flag indicating if live model inference failed (prevents treating failure as extracted data)"
+    )
+    error_message: Optional[str] = Field(
+        default=None,
+        description="Details of inference failure if is_error is True"
+    )
     model_name: str = Field(
         default="gemma-4",
         description="Model name used for extraction"
