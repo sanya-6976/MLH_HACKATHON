@@ -65,8 +65,10 @@ def test_full_pipeline_contract_compliance(loaded_rules):
         assert "rule_id" in item
 
 
-def test_mock_fallback_is_explicitly_labeled():
-    """Verify that simulated/demo extractions are explicitly marked."""
+def test_mock_fallback_is_explicitly_labeled(monkeypatch):
+    """Verify that simulated/demo extractions are explicitly marked when FORCE_MOCK_GEMMA=1."""
+    # Force mock mode so the test is not affected by a configured live API key
+    monkeypatch.setenv("FORCE_MOCK_GEMMA", "1")
     dummy_image = b"some_bytes"
     result = inspect_label(dummy_image)
     assert "is_mock" in result
@@ -76,11 +78,13 @@ def test_mock_fallback_is_explicitly_labeled():
     assert "DEMO" in result["model_name"] or "SIMULATED" in result["model_name"]
 
 
-def test_front_panel_scenario_yields_needs_review(loaded_rules):
+def test_front_panel_scenario_yields_needs_review(monkeypatch, loaded_rules):
     """
     Scenario where front of pack is uploaded (odd length trigger in demo mode).
     Ingredients and FSSAI are not on front panel -> NOT_DETECTED -> evaluation flags NEEDS_REVIEW.
     """
+    # Force mock so this structural scenario test is deterministic regardless of live key
+    monkeypatch.setenv("FORCE_MOCK_GEMMA", "1")
     front_pack_bytes = b"x" * 999
     extracted = inspect_label(front_pack_bytes)
 

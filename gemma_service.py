@@ -35,7 +35,7 @@ from schemas import (
 
 # Standard Gemma 4 multimodal instruction-tuned model ID (Google AI Studio / Gemini API)
 # Official supported IDs: gemma-4-31b-it (dense 31B), gemma-4-26b-a4b-it (MoE 26B), gemma-4-4b-it
-DEFAULT_MODEL_NAME = os.getenv("GEMMA_MODEL_NAME", "gemma-4-31b-it")
+DEFAULT_MODEL_NAME = os.getenv("GEMMA_MODEL_NAME", "gemma-4-26b-a4b-it")
 
 
 def _sanitize_message(message: str, api_key: Optional[str] = None) -> str:
@@ -341,7 +341,7 @@ Return ONLY valid JSON matching this schema:
             }
         }
 
-        resp = requests.post(url, json=payload, timeout=25)
+        resp = requests.post(url, json=payload, timeout=75)
         if resp.status_code == 200:
             data = resp.json()
             candidates = data.get("candidates", [])
@@ -425,7 +425,7 @@ Return ONLY valid JSON matching this schema:
         return None, {
             "category": "NETWORK_ERROR",
             "status_code": None,
-            "detail": "Request to Gemma 4 endpoint timed out after 25 seconds.",
+            "detail": "Request to Gemma 4 endpoint timed out after 75 seconds.",
             "suggested_fix": "Check your internet connection latency."
         }
     except requests.exceptions.ConnectionError:
