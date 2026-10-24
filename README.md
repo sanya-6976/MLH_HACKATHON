@@ -111,6 +111,18 @@ streamlit run app.py
 pytest -v
 ```
 
+### Step 7: Evaluate Genuine OCR Predictions (Member 2)
+
+The **Generic OCR Evaluation** section at the bottom of the Streamlit page accepts a UTF-8 JSONL predictions file and evaluates detection and recognition separately. This is an offline evaluation path: it does not send predictions or images to Gemma and does not convert Gemma's structured food-label fields into OCR transcripts or polygons.
+
+The selected dataset is not included in this repository. Keep the existing extracted dataset locally, with the manifest-relative paths intact, and set `LABELGUARD_OCR_DATASET_ROOT` to the directory that contains `Food Packaging OCR Dataset/`. The same root can be passed on the command line:
+
+```bash
+python evaluate_real_ocr.py path/to/genuine_predictions.jsonl --output-dir evaluation_reports --dataset-root /path/to/dataset-root
+```
+
+The runner writes separate JSON and Markdown reports. It requires genuine model predictions in the schema documented in `sample_data/REAL_OCR_EVALUATION_PROTOCOL.md`; mock/demo outputs must not be presented as model results. The selected generic OCR set does not evaluate product-field extraction or regulatory compliance.
+
 ---
 
 ## 📜 Verifiable Regulatory References
