@@ -188,6 +188,21 @@ def evaluate_label(extracted: dict, rules: dict) -> List[dict]:
                 )
                 action_needed = "Verify if complete nutritional panel (energy, carbs, sugars, fat, sodium) is present."
 
+        elif validation_type == "text_presence_or_exempt":
+            status = DetectionStatus.NEEDS_REVIEW
+            summary = "Text was detected, but exemption handling and declaration completeness require human review."
+            action_needed = "Review the applicable product category, exemption conditions, and complete label wording."
+
+        elif validation_type == "date_marking":
+            status = DetectionStatus.NEEDS_REVIEW
+            summary = "Date-related text was detected, but date type, validity, and required marking need human review."
+            action_needed = "Verify the date marking and applicable shelf-life requirements from the package and current rules."
+
+        else:
+            status = DetectionStatus.NEEDS_REVIEW
+            summary = f"Configured validation type '{validation_type}' is unsupported and requires human review."
+            action_needed = "Confirm the rule implementation before relying on this screening result."
+
         res = RuleEvaluationResult(
             rule_id=rule_id,
             rule_name=rule_name,

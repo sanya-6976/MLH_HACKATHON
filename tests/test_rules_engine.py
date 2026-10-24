@@ -147,11 +147,37 @@ def test_all_rules_not_detected_safeguard(food_rules):
         assert res["is_noncompliance_proof"] is False
 
 
-def test_verified_fssai_citations(food_rules):
+def test_rule_citations_reference_expected_framework(food_rules):
     """
-    TASK 7: Verify all rule citations match FSSAI (Labelling and Display) Regulations, 2020.
+    Citation strings point to the configured framework; this test does not
+    independently verify the regulation text or legal applicability.
     """
     assert "FSSAI (Labelling and Display) Regulations, 2020" in food_rules["framework"]
     for rule in food_rules["rules"]:
         assert "FSSAI (Labelling and Display) Regulations, 2020" in rule["citation"]
         assert "Regulation 5" in rule["citation"]
+
+
+@pytest.mark.parametrize("validation_type", ["text_presence_or_exempt", "date_marking", "unimplemented_demo_type"])
+def test_unsupported_or_unimplemented_validation_types_need_review(food_rules, validation_type):
+    rule = {
+        "rule_id": "TEST-UNSUPPORTED",
+        "rule_name": "Test rule",
+        "target_field": "test_field",
+        "validation_type": validation_type,
+        "citation": "Test reference only",
+    }
+    findings = evaluate_label(
+        {
+            "test_field": {
+                "status": "PRESENT",
+                "extracted_text": "Synthetic fixture evidence",
+                "visible_evidence": "Synthetic fixture only",
+            }
+        },
+        {"rules": [rule]},
+    )
+
+    assert findings[0]["status"] == DetectionStatus.NEEDS_REVIEW.value
+    assert findings[0]["is_noncompliance_proof"] is False
+    assert findings[0]["action_needed"]

@@ -242,7 +242,10 @@ if image_bytes:
 
     with col_right:
         st.subheader("⚖️ FSSAI (Labelling & Display) Screening")
-        st.caption("Deterministic evaluation against Food Safety and Standards Regulations, 2020 (as amended):")
+        st.caption(
+            "Configured screening checks referencing FSSAI labelling provisions. "
+            "These findings are not legal verification or compliance certification."
+        )
 
         # Summary counts
         present_count = sum(1 for r in evaluation_results if r.get("status") == "PRESENT")
@@ -250,7 +253,7 @@ if image_bytes:
         unclear_count = sum(1 for r in evaluation_results if r.get("status") == "UNCLEAR")
 
         metric_col1, metric_col2, metric_col3 = st.columns(3)
-        metric_col1.metric("Present & Verified", present_count)
+        metric_col1.metric("Checks marked PRESENT", present_count)
         metric_col2.metric("Needs Review / Other Sides", review_count)
         metric_col3.metric("Unclear / Blurry", unclear_count)
 

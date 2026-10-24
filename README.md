@@ -11,10 +11,10 @@
 ---
 
 ## 🎯 Project Overview
-LabelGuard AI assists consumers, reviewers, and quality teams in screening packaged-food labels sold in India against verifiable provisions of the **Food Safety and Standards (Labelling and Display) Regulations, 2020**:
+LabelGuard AI assists consumers, reviewers, and quality teams by extracting visible label evidence and applying configurable screening checks that reference the **Food Safety and Standards (Labelling and Display) Regulations, 2020**. The configured checks are illustrative and require human review; they do not establish legal compliance:
 
 1. **Multimodal Visual Evidence Extraction**: Google **Gemma 4** (`gemma-4-31b-it`, `gemma-4-26b-a4b-it`) inspects label imagery to identify what is actually visible on the packaging (text, logos, symbols, dates, and tables).
-2. **Deterministic Rules Evaluation**: A separate, verifiable Python rules engine evaluates extracted evidence against configurable statutory rules in `rules/food_label_rules.json`.
+2. **Deterministic Screening Checks**: A separate Python rules engine evaluates extracted evidence against configurable checks in `rules/food_label_rules.json`. Unsupported validation types are routed to `NEEDS_REVIEW`.
 3. **Model Failure Isolation**: If live model inference fails or is throttled, rules evaluation is safely blocked with `NEEDS_REVIEW` instead of injecting false compliance findings or hallucinated data.
 4. **Transparent Uncertainty**: Explicitly presents statuses (`PRESENT`, `NOT_DETECTED`, `UNCLEAR`, `NEEDS_REVIEW`) and visual evidence so users can understand and verify every finding.
 
@@ -35,7 +35,7 @@ LabelGuard AI assists consumers, reviewers, and quality teams in screening packa
   *Implemented in `rules_engine.py`.* Deterministically screens extracted dictionary against rule specifications.
 
 ### Shared Statuses
-- **`PRESENT`**: Evidence is clearly detected and verified on visible label.
+- **`PRESENT`**: Evidence was returned as visible in the submitted image; this is not legal verification.
 - **`NOT_DETECTED`**: Element not found in this image view (flags for multi-panel review).
 - **`UNCLEAR`**: Text or graphic is blurry, faint, or partially occluded.
 - **`NEEDS_REVIEW`**: Ambiguous classification or formatting requiring manual check.
@@ -125,8 +125,8 @@ The runner writes separate JSON and Markdown reports. It requires genuine model 
 
 ---
 
-## 📜 Verifiable Regulatory References
-All rules in `rules/food_label_rules.json` reference actual statutory clauses under the **Food Safety and Standards (Labelling and Display) Regulations, 2020 (as amended)**:
+## 📜 Regulatory References for Human Review
+The entries in `rules/food_label_rules.json` cite sections of the **Food Safety and Standards (Labelling and Display) Regulations, 2020 (as amended)**. Their wording, current applicability, exceptions, and any later amendments have not been independently verified in this project. Treat every result as illustrative screening evidence and confirm the applicable law with a qualified human reviewer:
 - **Regulation 5(1)**: Name of the Food (on Principal Display Panel)
 - **Regulation 5(2)**: List of Ingredients in descending order of in-going weight/volume
 - **Regulation 5(3)**: Mandatory Nutritional Information panel per 100g/ml or per serve
