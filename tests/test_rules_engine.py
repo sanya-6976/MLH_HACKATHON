@@ -5,7 +5,15 @@ Verifies FSSAI 2020 deterministic evaluation and noncompliance safeguards.
 
 import json
 from pathlib import Path
-import pytest
+try:
+    import pytest
+except ImportError:
+    class MockPytest:
+        @staticmethod
+        def fixture(func):
+            return func
+
+    pytest = MockPytest()
 from rules_engine import evaluate_label
 from schemas import DetectionStatus
 

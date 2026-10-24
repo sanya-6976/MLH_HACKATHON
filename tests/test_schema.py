@@ -3,7 +3,23 @@ LabelGuard AI - Schema Unit Tests (Member 1)
 Validates Pydantic data schemas, status contracts, and serialization.
 """
 
-import pytest
+try:
+    import pytest
+except ImportError:
+    class MockPytest:
+        class raises:
+            def __init__(self, expected_exc):
+                self.expected_exc = expected_exc
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                if exc_type is None:
+                    raise AssertionError(f"Expected {self.expected_exc} but no exception was raised")
+                return issubclass(exc_type, self.expected_exc)
+
+    pytest = MockPytest()
 from pydantic import ValidationError
 from schemas import (
     DetectionStatus,

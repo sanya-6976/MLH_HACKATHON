@@ -5,7 +5,15 @@ Verifies contract boundaries, full pipeline integration, and mock labeling.
 
 import json
 from pathlib import Path
-import pytest
+try:
+    import pytest
+except ImportError:
+    class MockPytest:
+        @staticmethod
+        def fixture(func):
+            return func
+
+    pytest = MockPytest()
 from gemma_service import inspect_label
 from rules_engine import evaluate_label
 from schemas import DetectionStatus
